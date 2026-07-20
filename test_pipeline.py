@@ -1,8 +1,6 @@
 import unittest
 import numpy as np
 import pickle
-from sklearn.linear_model import LogisticRegression
-
 from sklearn.pipeline import Pipeline
 
 class TestEndOfTurnPipeline(unittest.TestCase):
