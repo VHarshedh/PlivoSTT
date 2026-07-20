@@ -1,5 +1,6 @@
 *.zip
 *.pdf
-.env
+.env*
 venv
 .Identifier
+*eot_handout
