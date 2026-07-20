@@ -1,8 +1,16 @@
 import numpy as np
 import librosa
-import os
 import soundfile as sf
+import os
 import warnings
+
+# Resemblyzer imports
+
+from resemblyzer import VoiceEncoder
+
+# Initialize globally to prevent reloading weights on every extraction
+
+_encoder = VoiceEncoder()
 
 def load_wav(path):
     x, sr = sf.read(path, dtype="float32", always_2d=False)
@@ -14,86 +22,56 @@ def extract_language_flag(audio_path):
     return 1.0 if 'hindi' in audio_path.lower() else 0.0
 
 def extract_all_features(y, sr, pause_start, audio_path):
-    # 1. Turn Duration
+# 1. Turn Duration (Numeric)
     f_turn_duration = float(pause_start)
-    
-    # 2-4. Acoustic Features
-    window_s = 1.0
-    end_sample = int(pause_start * sr)
-    start_sample = max(0, end_sample - int(window_s * sr))
-    
-    y_window = y[start_sample:end_sample]
-    
+
+# 2. Language Flag
     f_lang = extract_language_flag(audio_path)
-    
-    # Fallback for extremely short or empty audio
-    if len(y_window) < 256:
-        return np.array([f_turn_duration, 0.0, 0.0, 0.0, f_lang], dtype=np.float32)
-        
-    rms_frames = librosa.feature.rms(y=y_window)[0]
-    
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        pitch_frames = librosa.yin(
-            y_window, 
-            fmin=65, 
-            fmax=400, 
-            sr=sr, 
-            frame_length=min(len(y_window), 2048)
-        )
-        
-    # Ensure same length
-    min_len = min(len(rms_frames), len(pitch_frames))
-    rms_frames = rms_frames[:min_len]
-    pitch_frames = pitch_frames[:min_len]
-    
-    rms_max = np.max(rms_frames)
-    energy_floor = 0.01 * rms_max
-    
-    voiced_mask = (~np.isnan(pitch_frames)) & (rms_frames >= energy_floor)
-    
-    hop_length = 512
-    frame_rate = sr / hop_length
-    
-    frames_200ms = max(1, int(0.2 * frame_rate))
-    frames_400ms = max(1, int(0.4 * frame_rate))
-    
-    # Slice arrays
-    rms_200 = rms_frames[-frames_200ms:] if len(rms_frames) >= frames_200ms else rms_frames
-    rms_800 = rms_frames[:-frames_200ms] if len(rms_frames) > frames_200ms else np.array([])
-    
-    pitch_200 = pitch_frames[-frames_200ms:] if len(pitch_frames) >= frames_200ms else pitch_frames
-    pitch_800 = pitch_frames[:-frames_200ms] if len(pitch_frames) > frames_200ms else np.array([])
-    
-    voiced_200 = voiced_mask[-frames_200ms:] if len(voiced_mask) >= frames_200ms else voiced_mask
-    voiced_800 = voiced_mask[:-frames_200ms] if len(voiced_mask) > frames_200ms else np.array([])
-    
-    voiced_400 = voiced_mask[-frames_400ms:] if len(voiced_mask) >= frames_400ms else voiced_mask
-    
-    # 2. Robust Energy Drop
-    mean_rms_200 = np.mean(rms_200) if len(rms_200) > 0 else 0.0
-    mean_rms_800 = np.mean(rms_800) if len(rms_800) > 0 else 0.0
-    f_energy_drop = mean_rms_200 / (mean_rms_800 + 1e-6)
-    
-    # 3. Voiced-Only Pitch Change
-    voiced_pitch_200 = pitch_200[voiced_200]
-    voiced_pitch_800 = pitch_800[voiced_800]
-    
-    if len(voiced_pitch_200) > 0 and len(voiced_pitch_800) > 0:
-        f_pitch_change = float(np.mean(voiced_pitch_200) - np.mean(voiced_pitch_800))
+
+    # Causal Boundaries (Strictly up to pause_start)
+    end_sample = int(pause_start * sr)
+
+    # 3. Acoustic Hand-Crafted Features (1.0s causal window)
+    window_ac = max(0, end_sample - int(1.0 * sr))
+    y_ac = y[window_ac:end_sample]
+
+    f_energy_drop = 1.0
+    f_voicing_density = 0.0
+
+    if len(y_ac) > int(0.5 * sr):
+        rms = librosa.feature.rms(y=y_ac)[0]
+        if len(rms) > 4:
+            # Energy drop: mean RMS of last 20% vs previous 80%
+            split_idx = int(len(rms) * 0.8)
+            recent_rms = np.mean(rms[split_idx:])
+            past_rms = np.mean(rms[:split_idx])
+            f_energy_drop = recent_rms / (past_rms + 1e-6)
+            
+            # Voicing density: fraction of frames in final 40% above relative floor
+            vd_idx = int(len(rms) * 0.6)
+            recent_frames = rms[vd_idx:]
+            threshold = 0.01 * np.max(rms)
+            f_voicing_density = np.mean(recent_frames > threshold)
+
+# 4. Acoustic Embedding (1.5s causal window)
+    window_emb = max(0, end_sample - int(1.5 * sr))
+    y_emb = y[window_emb:end_sample]
+
+    # Handle extremely short/empty audio
+    if len(y_emb) < int(0.1 * sr): # less than 100ms
+        emb = np.zeros(256, dtype=np.float32)
     else:
-        f_pitch_change = 0.0
+        # Resemblyzer requires 16000 Hz
+        if sr != 16000:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                y_resampled = librosa.resample(y_emb, orig_sr=sr, target_sr=16000)
+        else:
+            y_resampled = y_emb
+            
+        # Extract 256-dimensional prosody embedding
+        emb = _encoder.embed_utterance(y_resampled)
         
-    # 4. Voicing Density
-    if len(voiced_400) > 0:
-        f_voicing_density = float(np.sum(voiced_400) / len(voiced_400))
-    else:
-        f_voicing_density = 0.0
-        
-    return np.array([
-        f_turn_duration,
-        f_energy_drop,
-        f_pitch_change,
-        f_voicing_density,
-        f_lang
-    ], dtype=np.float32)
+    # Combine features: [duration, lang, energy_drop, voicing, emb_0 ... emb_255]
+    features = np.concatenate([[f_turn_duration, f_lang, f_energy_drop, f_voicing_density], emb]).astype(np.float32)
+    return features

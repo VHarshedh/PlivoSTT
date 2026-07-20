@@ -1,5 +1,4 @@
 import argparse
-import csv
 import os
 import numpy as np
 import pandas as pd
@@ -13,17 +12,16 @@ def main():
     ap.add_argument("--model", default="model.pkl")
     args = ap.parse_args()
 
-    # Load model
     print(f"Loading model from {args.model}...")
     with open(args.model, "rb") as f:
         model = pickle.load(f)
 
     cache = {}
     X = []
-    
+
     labels_path = os.path.join(args.data_dir, "labels.csv")
     test_df = pd.read_csv(labels_path)
-    
+
     print(f"Extracting features from {args.data_dir}...")
     for _, r in test_df.iterrows():
         path = os.path.join(args.data_dir, r["audio_file"])
@@ -36,20 +34,19 @@ def main():
         X.append(features)
         
     X = np.array(X)
-    
+
     print("Predicting probabilities...")
-    # Extract the exact probability of the positive class (EOT)
     probabilities = model.predict_proba(X)[:, 1]
 
-    # Save directly to predictions.csv without scaling or thresholding
     df_out = pd.DataFrame({
         'turn_id': test_df['turn_id'],
         'pause_index': test_df['pause_index'],
         'p_eot': probabilities
     })
-    
+
     df_out.to_csv(args.out, index=False)
     print(f"Wrote {len(df_out)} predictions -> {args.out}")
+
 
 if __name__ == "__main__":
     main()

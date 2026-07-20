@@ -4,7 +4,9 @@ import os
 import numpy as np
 import soundfile as sf
 import pickle
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SelectFromModel
 from sklearn.model_selection import GroupShuffleSplit
 from features_ext import extract_all_features
 
@@ -92,15 +94,20 @@ def main():
         # Train regularized model
         clf = Pipeline([
             ('scaler', StandardScaler()),
-            ('hgbc', HistGradientBoostingClassifier(
+            ('feature_selection', SelectFromModel(LogisticRegression(
+                penalty='l1',
+                solver='liblinear',
+                C=0.1,
+                class_weight='balanced',
+                max_iter=1000,
+                random_state=42
+            ))),
+            ('rfc', RandomForestClassifier(
                 random_state=42, 
                 class_weight='balanced',
-                max_depth=6,
-                min_samples_leaf=4,
-                l2_regularization=1.0,
-                learning_rate=0.05,
-                max_iter=100,
-                early_stopping=True
+                max_depth=4,
+                min_samples_leaf=5,
+                n_estimators=100
             ))
         ])
         clf.fit(X[train_idx], y[train_idx])
@@ -137,18 +144,27 @@ def main():
     print("Refitting regularized model on all data...")
     clf = Pipeline([
         ('scaler', StandardScaler()),
-        ('hgbc', HistGradientBoostingClassifier(
+        ('feature_selection', SelectFromModel(LogisticRegression(
+            penalty='l1',
+            solver='liblinear',
+            C=0.1,
+            class_weight='balanced',
+            max_iter=1000,
+            random_state=42
+        ))),
+        ('rfc', RandomForestClassifier(
             random_state=42, 
             class_weight='balanced',
-            max_depth=6,
-            min_samples_leaf=4,
-            l2_regularization=1.0,
-            learning_rate=0.05,
-            max_iter=100,
-            early_stopping=True
+            max_depth=4,
+            min_samples_leaf=5,
+            n_estimators=100
         ))
     ])
     clf.fit(X, y)
+    
+    # Print non-zero coefficients
+    non_zero = np.sum(clf.named_steps['feature_selection'].estimator_.coef_ != 0)
+    print(f"\nFeatures retained (non-zero coefficients): {non_zero} out of {X.shape[1]}")
     
     # Save the model
     with open(args.out_model, "wb") as f:
