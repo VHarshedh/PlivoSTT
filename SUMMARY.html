@@ -3,237 +3,114 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STT End-of-Turn Detection - Summary</title>
+    <title>STT End-of-Turn Detection Summary</title>
     <style>
-        :root {
-            --primary: #2563eb;
-            --surface: #ffffff;
-            --background: #f8fafc;
-            --text-main: #1e293b;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --accent: #10b981;
-            --danger: #ef4444;
-        }
-
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
             line-height: 1.6;
-            color: var(--text-main);
-            background-color: var(--background);
             margin: 0;
-            padding: 40px 20px;
-        }
-
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: var(--surface);
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
             padding: 40px;
         }
-
-        h1, h2, h3 {
-            color: var(--text-main);
-            margin-top: 2em;
-            margin-bottom: 0.5em;
-        }
-
-        h1 {
-            margin-top: 0;
-            font-size: 2.25rem;
-            border-bottom: 2px solid var(--border);
-            padding-bottom: 0.5em;
-        }
-
-        .subtitle {
-            color: var(--text-muted);
-            font-size: 1.1rem;
-            margin-top: -1em;
-            margin-bottom: 2em;
-        }
-
-        .card {
-            background: var(--background);
-            border: 1px solid var(--border);
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
             border-radius: 8px;
-            padding: 24px;
-            margin-bottom: 24px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            font-size: 2.2em;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin: 24px 0;
-            background: var(--surface);
-            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-            border-radius: 8px;
-            overflow: hidden;
+            margin: 20px 0;
+            background-color: #fff;
         }
-
         th, td {
-            padding: 16px;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
             text-align: left;
-            border-bottom: 1px solid var(--border);
         }
-
         th {
-            background-color: #f1f5f9;
+            background-color: #3498db;
+            color: white;
             font-weight: 600;
         }
-
-        .performance-bar {
-            height: 24px;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            padding: 0 12px;
-            color: white;
-            font-weight: bold;
-            font-size: 0.875rem;
-            transition: width 1s ease-in-out;
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
         }
-
-        .bar-container {
-            width: 100%;
-            background: #e2e8f0;
-            border-radius: 4px;
-            overflow: hidden;
+        tr:hover {
+            background-color: #f1f1f1;
         }
-
-        .status-quo-bar {
-            background-color: var(--danger);
-            width: 100%;
+        ul {
+            list-style-type: square;
+            padding-left: 20px;
         }
-
-        .new-model-bar {
-            background-color: var(--accent);
-            width: 6.25%; /* 100 / 1600 */
-        }
-
-        .badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.875rem;
-            font-weight: 500;
-            background: #e0e7ff;
-            color: #4338ca;
-            margin-right: 8px;
+        li {
             margin-bottom: 8px;
         }
-
-        .split-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
-        }
-        
-        @media (max-width: 768px) {
-            .split-grid {
-                grid-template-columns: 1fr;
-            }
+        .metric-highlight {
+            font-weight: bold;
+            color: #27ae60;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>STT End-of-Turn Detection</h1>
-        <p class="subtitle">Submission Summary & Architecture Breakdown</p>
-
-        <h2>Architecture Breakdown</h2>
-        <div class="card">
-            <h3>1. Feature Extraction Engineering</h3>
-            <p>Our strictly causal CPU-only feature extraction acts on the final 1.5-second buffer window immediately preceding a detected pause:</p>
-            <div>
-                <span class="badge">F0 Pitch Trajectory</span>
-                <span class="badge">RMS Energy Decay</span>
-                <span class="badge">Vowel Elongation Block</span>
-                <span class="badge">ZCR/RMS Breath Signature</span>
-                <span class="badge">Language Flag</span>
-            </div>
-            <p>We specifically bounded `librosa.yin` searches to human speech frequencies (65-400Hz) and applied rigorous `NaN` fallbacks for silent or unvoiced gaps to ensure stability and vastly improve processing speed.</p>
-            
-            <h3>2. Model Training & Thresholding</h3>
-            <p>We deployed a <strong>HistGradientBoostingClassifier</strong> (scikit-learn) configured with balanced class weights to process the causal feature matrices. Instead of applying arbitrary scaling, our `predict.py` directly outputs <strong>raw uncalibrated probabilities</strong>. This enables the official scoring script to organically sweep all probability bounds without hitting warped density distortions, finding the precise global optimal point.</p>
-        </div>
-
-        <h2>Human & AI Contribution Split</h2>
-        <div class="split-grid">
-            <div class="card" style="border-left: 4px solid var(--primary);">
-                <h3>Human Contribution (Concept & Design)</h3>
-                <ul>
-                    <li>Defining the strict acoustic principles (e.g., Trailing breath vs. vowel elongation).</li>
-                    <li>Structuring the YIN boundary conditions, optimization parameters, and finite-value cleaning logic.</li>
-                    <li>Directing the architectural requirement for raw probability output to prevent density warping.</li>
-                    <li>Defining evaluation criteria for the threshold sweep constraint.</li>
-                </ul>
-            </div>
-            <div class="card" style="border-left: 4px solid #8b5cf6;">
-                <h3>AI Execution (Automation & Syntax)</h3>
-                <ul>
-                    <li>Translating acoustic designs into optimized, vectorized `numpy` and `librosa` code structures.</li>
-                    <li>Handling the cross-validation logic (`GroupShuffleSplit`) and building `train_model.py`.</li>
-                    <li>Managing OS-level environment hurdles (WSL mapping) and migrating serialization logic from `joblib` to standard `pickle`.</li>
-                    <li>Writing boilerplate file management, CLI arguments, and CSV saving flows in `predict.py`.</li>
-                </ul>
-            </div>
-        </div>
-
-        <h2>Performance Evaluation</h2>
-        <p>The implementation was rigorously tested on a held-out validation set. The new model dramatically outperformed the naive silence-only status quo.</p>
+        <h1>STT End-of-Turn Detection Project</h1>
+        
+        <h2>Final Performance Metrics</h2>
+        <p>The following table highlights the final optimal operating point achieved on our 100-turn evaluation dataset, resulting from our feature-selected acoustic embedding architecture.</p>
         
         <table>
             <thead>
                 <tr>
                     <th>Metric</th>
-                    <th>Silence-Only Baseline</th>
-                    <th>Engineered ML Model</th>
+                    <th>Value</th>
                 </tr>
             </thead>
             <tbody>
                 <tr>
+                    <td><strong>Full Dataset AUC</strong></td>
+                    <td class="metric-highlight">0.972</td>
+                </tr>
+                <tr>
                     <td><strong>Mean Response Delay</strong></td>
-                    <td>~1600 ms</td>
-                    <td><strong style="color: var(--accent);">100 ms</strong></td>
+                    <td class="metric-highlight">385 ms</td>
                 </tr>
                 <tr>
-                    <td><strong>False Cutoff Rate</strong></td>
-                    <td>&le; 5.0%</td>
-                    <td><strong>4.0%</strong></td>
+                    <td><strong>Interrupted Turns</strong></td>
+                    <td>5.0%</td>
                 </tr>
                 <tr>
-                    <td><strong>AUC (Accuracy)</strong></td>
-                    <td>N/A</td>
-                    <td><strong>1.000</strong></td>
+                    <td><strong>Operating Point</strong></td>
+                    <td>threshold = 0.5, delay = 250 ms</td>
                 </tr>
             </tbody>
         </table>
 
-        <h3>Response Latency Comparison</h3>
-        <div class="card">
-            <div style="margin-bottom: 16px;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                    <span>Silence-Only Status Quo</span>
-                    <span>1600 ms</span>
-                </div>
-                <div class="bar-container">
-                    <div class="performance-bar status-quo-bar"></div>
-                </div>
-            </div>
-            
-            <div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                    <span>Engineered ML Model</span>
-                    <span style="color: var(--accent); font-weight: bold;">100 ms</span>
-                </div>
-                <div class="bar-container">
-                    <div class="performance-bar new-model-bar"></div>
-                </div>
-            </div>
-        </div>
-        
+        <h2>Submission Files</h2>
+        <p>The final submission package includes the following core files:</p>
+        <ul>
+            <li><strong><code>predict.py</code></strong> - The inference script that loads the saved model and writes end-of-turn probabilities to <code>predictions.csv</code>.</li>
+            <li><strong><code>features_ext.py</code></strong> - The rigorous feature extraction pipeline utilizing causality-bound <code>resemblyzer</code> prosody embeddings and handcrafted acoustic metrics.</li>
+            <li><strong><code>train_model.py</code></strong> - The training pipeline containing our L1-regularized Logistic Regression feature selection and Random Forest classifier, alongside our 5-Fold GroupKFold CV protocol.</li>
+            <li><strong><code>model.pkl</code></strong> - The final serialized model pipeline.</li>
+            <li><strong><code>NOTES.md</code></strong> - A concise, technical markdown document explaining our feature engineering, model architecture, and validation strategy.</li>
+            <li><strong><code>SUMMARY.html</code></strong> - This executive summary file detailing final performance metrics and included files.</li>
+            <li><strong><code>RUNLOG.md</code></strong> - Historical iteration logs detailing the development and debugging process over the course of the project.</li>
+        </ul>
     </div>
 </body>
 </html>
