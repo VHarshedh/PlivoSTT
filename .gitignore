@@ -1,0 +1,4 @@
+*.zip
+*.pdf
+.env
+venv
