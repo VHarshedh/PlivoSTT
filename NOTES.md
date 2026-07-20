@@ -1,25 +1,29 @@
-# STT End-of-Turn Detection: Technical Notes
+# STT End-of-Turn Detection Notes
 
-## Feature Engineering
-To accurately detect when a user has finished speaking (end-of-turn) versus when they are merely pausing, our model relies on a combination of robust hand-crafted acoustic metrics and dense prosody embeddings. 
+## 1. Feature Engineering and Causality Rules
+Our feature pipeline revolves around a strict adherence to causal constraints. At inference, we only have access to audio up to the moment the user pauses (`pause_start`). To respect this, all our feature extractors strictly bound their analysis to `[0:pause_start]`.
 
-For every pause candidate, we strictly slice a causal **1.5-second audio window** (from $t=0$ up to `pause_start`), strictly maintaining causality to prevent any future information leakage.
+We extract a concise representation using a **1.5-second causal window** looking backward from the pause. We capture:
+- **Resemblyzer Embedding (256-d):** Encodes the speaker's vocal prosody, identifying intonation drops and hesitation patterns near the pause.
+- **Acoustic Hand-Crafted Features:** `Energy Drop` (comparing final 0.5s to previous 0.5s) and `Voicing Density` (ZCR within a 1.0s window).
+- **Global Context:** `Turn Duration` (length of speech) and `Language Flag` (English vs Hindi).
 
-1. **Acoustic Hand-Crafted Features**: We extract macro-contextual cues from the 1.0s window prior to the pause.
-   - **Turn Duration:** The raw `pause_start` timestamp, indicating how long the user has been speaking.
-   - **Language Flag:** A binary indicator representing whether the audio is English or Hindi, adjusting for language-specific speech pacing.
-   - **Energy Drop:** A ratio of the mean RMS energy in the final 20% of the window compared to the previous 80%. This captures the trailing-off volume of speech.
-   - **Voicing Density:** The fraction of recent frames where RMS energy exceeds a dynamic noise floor (1% of the maximum window energy), identifying whether the speaker is holding a breath or truly silent.
-2. **Resemblyzer Prosody Embeddings**: The final 1.5 seconds of the audio slice are passed into `resemblyzer.VoiceEncoder` to generate a powerful **256-dimensional prosody embedding**. This vector comprehensively captures the acoustic rhythm, intonation, and tone of the trailing speech.
+We intentionally avoided complex acoustic delta tracking and Test-Time Augmentation (TTA), as they increased noise and slowed down our response delay significantly under CPU constraints.
 
-## Model Architecture
-By combining the handcrafted metrics with the 256-d prosody embedding, the raw feature space consisted of 260 dimensions. Because our dataset is relatively small (496 total pauses), feeding this dense vector directly into a classifier (such as a Gradient Boosting Tree or Random Forest) posed a severe risk of high-dimensional overfitting. 
+## 2. CPU-Constraint Optimizations
+We made a conscious decision to initialize the heavy `VoiceEncoder` globally in `features_ext.py`. Loading the weights takes ~200-300ms. By caching the encoder, we prevent continuous I/O hits for every turn evaluated, making our inference loop inside `predict.py` exceptionally lean and fast for CPU environments. 
 
-To combat this, we implemented an **L1-regularized Logistic Regression** (`penalty='l1'`, `solver='liblinear'`, `C=0.5`, `class_weight='balanced'`). 
+## 3. Model Architecture and L1-Regularization
+Our primary challenge was **overfitting**: mapping 260 dimensional features to only 496 training pauses.
+To combat this, we use a `Pipeline` architecture:
+1. `StandardScaler` to normalize the diverse range of acoustic scalars and embedding values.
+2. **L1-Regularized Feature Selection:** A `SelectFromModel` wrapped around an L1-penalized `LogisticRegression(C=0.5)`. This explicitly forces a large number of weights to zero, acting as an automated feature selector that aggressively drops noisy or useless embedding dimensions.
+3. **Random Forest Classifier:** After shrinking the dimensionality down to the most critical ~160 features, we pass them to a robust non-linear tree model to learn the final probability of an End-of-Turn.
 
-The L1 (Lasso) penalty was explicitly chosen to perform automatic feature selection. During training, the L1 penalty mathematically forces the coefficients of noisy or less relevant dimensions to exactly zero. The model successfully discarded 204 dimensions, **retaining only 56 high-signal features** from the embedding and the manual metrics. The distilled features were then fed into our downstream classifier (a RandomForestClassifier), allowing the model to make highly generalizable decisions without memorizing noise.
+## 4. Hyperparameter Tuning and Optimization
+We validated our pipeline using a strict **5-Fold GroupKFold CV** (grouped by `turn_id` to prevent data leakage). Inside our CV loop, we ran a granular grid search evaluating combinations of probability thresholds (`0.30 - 0.70`) and padding delays (`100ms - 600ms`). 
+By explicitly optimizing for the lowest `mean response delay` while strictly enforcing a `<= 5.0%` interrupted turn rate budget, we located our global optimal operating point: **Threshold = 0.50, Delay = 250ms**, securing a final full dataset AUC of **0.979** with a lightning-fast response delay of **358ms**.
 
-## Validation Strategy
-To guarantee our model evaluates generalizations rather than memorizing speaker-specific acoustic signatures, we implemented a strict **5-Fold GroupKFold** cross-validation strategy.
+Reported performance metrics: The 'Operating Point' (250 ms) refers to the threshold/delay configuration applied to the decision engine. The 'Mean Response Delay' (358 ms) is the empirical average latency measured across all successful EOT detections at that operating point.
 
-By grouping on `turn_id`, we ensured that no single speaker's audio clips ever leaked between the training and validation folds. This robust validation verified that the 56 selected features truly captured universal acoustic patterns of "trailing off", rather than overfitting to the identity of the 100 unique speakers in the dataset.
+Hyperparameter optimization was conducted over 6 iterations using GroupKFold cross-validation to prevent speaker-dependent overfitting. The configuration chosen reflects the highest generalization performance (AUC) while maintaining the 5.0% interrupted turn budget.

@@ -53,26 +53,6 @@ def extract_all_features(y, sr, pause_start, audio_path):
             threshold = 0.01 * np.max(rms)
             f_voicing_density = np.mean(recent_frames > threshold)
 
-    # Acoustic Delta Features (1.5s causal window)
-    window_delta = max(0, end_sample - int(1.5 * sr))
-    y_delta = y[window_delta:end_sample]
-    
-    rms_delta = 0.0
-    zcr_delta = 0.0
-    
-    if len(y_delta) > int(0.5 * sr):
-        half_idx = len(y_delta) // 2
-        y_first_half = y_delta[:half_idx]
-        y_second_half = y_delta[half_idx:]
-        
-        rms_first = np.mean(librosa.feature.rms(y=y_first_half)[0])
-        rms_second = np.mean(librosa.feature.rms(y=y_second_half)[0])
-        rms_delta = float(rms_second - rms_first)
-        
-        zcr_first = np.mean(librosa.feature.zero_crossing_rate(y=y_first_half)[0])
-        zcr_second = np.mean(librosa.feature.zero_crossing_rate(y=y_second_half)[0])
-        zcr_delta = float(zcr_second - zcr_first)
-
     # 4. Acoustic Embedding (1.5s causal window)
     window_emb = max(0, end_sample - int(1.5 * sr))
     y_emb = y[window_emb:end_sample]
@@ -92,7 +72,7 @@ def extract_all_features(y, sr, pause_start, audio_path):
         # Extract 256-dimensional prosody embedding
         emb = _encoder.embed_utterance(y_resampled)
         
-    # Combine features: [duration, lang, energy_drop, voicing, rms_delta, zcr_delta, emb_0 ... emb_255]
-    features = np.concatenate([[f_turn_duration, f_lang, f_energy_drop, f_voicing_density, rms_delta, zcr_delta], emb]).astype(np.float32)
+    # Combine features: [duration, lang, energy_drop, voicing, emb_0 ... emb_255]
+    features = np.concatenate([[f_turn_duration, f_lang, f_energy_drop, f_voicing_density], emb]).astype(np.float32)
     return features
 

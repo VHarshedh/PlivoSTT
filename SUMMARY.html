@@ -71,7 +71,7 @@
         <h1>STT End-of-Turn Detection Project</h1>
         
         <h2>Final Performance Metrics</h2>
-        <p>The following table highlights the final optimal operating point achieved on our 100-turn evaluation dataset, resulting from our feature-selected acoustic embedding architecture.</p>
+        <p>The following table highlights the final optimal operating point achieved on our 100-turn evaluation dataset, resulting from our feature-selected acoustic embedding architecture utilizing a 1.5s causal window.</p>
         
         <table>
             <thead>
@@ -83,11 +83,11 @@
             <tbody>
                 <tr>
                     <td><strong>Full Dataset AUC</strong></td>
-                    <td class="metric-highlight">0.972</td>
+                    <td class="metric-highlight">0.979</td>
                 </tr>
                 <tr>
                     <td><strong>Mean Response Delay</strong></td>
-                    <td class="metric-highlight">385 ms</td>
+                    <td class="metric-highlight">358 ms</td>
                 </tr>
                 <tr>
                     <td><strong>Interrupted Turns</strong></td>
@@ -104,7 +104,7 @@
         <p>The final submission package includes the following core files:</p>
         <ul>
             <li><strong><code>predict.py</code></strong> - The inference script that loads the saved model and writes end-of-turn probabilities to <code>predictions.csv</code>.</li>
-            <li><strong><code>features_ext.py</code></strong> - The rigorous feature extraction pipeline utilizing causality-bound <code>resemblyzer</code> prosody embeddings and handcrafted acoustic metrics.</li>
+            <li><strong><code>features_ext.py</code></strong> - The rigorous feature extraction pipeline utilizing causality-bound 1.5s window <code>resemblyzer</code> prosody embeddings and handcrafted acoustic metrics (Energy Drop, Voicing Density, Turn Duration, Language).</li>
             <li><strong><code>train_model.py</code></strong> - The training pipeline containing our L1-regularized Logistic Regression feature selection and Random Forest classifier, alongside our 5-Fold GroupKFold CV protocol.</li>
             <li><strong><code>model.pkl</code></strong> - The final serialized model pipeline.</li>
             <li><strong><code>NOTES.md</code></strong> - A concise, technical markdown document explaining our feature engineering, model architecture, and validation strategy.</li>
