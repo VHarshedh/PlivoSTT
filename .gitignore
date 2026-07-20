@@ -2,5 +2,8 @@
 *.pdf
 .env*
 venv
-.Identifier
+.*Identifier*
 *eot_handout
+*Plivo_Assignment_Setup_Instructions*
+_pycache__/
+_pycache__/features_ext.cpython-312.pyc

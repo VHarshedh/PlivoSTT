@@ -76,39 +76,78 @@ def main():
     X, y, groups = np.array(X), np.array(y), np.array(groups)
     print(f"Total pauses loaded: {len(X)}")
 
-    # Split into train/dev
-    gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
-    train_idx, dev_idx = next(gss.split(X, y, groups))
+    # 5-Fold GroupKFold CV
+    from sklearn.model_selection import GroupKFold
+    from sklearn.metrics import roc_auc_score
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
     
-    print(f"Training on {len(train_idx)} pauses, validating on {len(dev_idx)} pauses...")
+    gkf = GroupKFold(n_splits=5)
     
-    # Train the model
-    clf = HistGradientBoostingClassifier(random_state=42, max_iter=200, class_weight='balanced')
-    clf.fit(X[train_idx], y[train_idx])
+    fold_thresholds = []
+    fold_delays = []
     
-    # Predict on dev set
-    dev_probs = clf.predict_proba(X[dev_idx])[:, 1]
-    
-    # Create pause structures for scoring
-    pauses_dev = []
-    for i, idx in enumerate(dev_idx):
-        tid, p_index, label, dur = keys[idx]
-        pauses_dev.append({
-            "turn_id": tid,
-            "dur": dur,
-            "label": label,
-            "p": dev_probs[i]
-        })
+    print("Starting 5-Fold Cross Validation...")
+    for fold, (train_idx, dev_idx) in enumerate(gkf.split(X, y, groups), 1):
+        # Train regularized model
+        clf = Pipeline([
+            ('scaler', StandardScaler()),
+            ('hgbc', HistGradientBoostingClassifier(
+                random_state=42, 
+                class_weight='balanced',
+                max_depth=6,
+                min_samples_leaf=4,
+                l2_regularization=1.0,
+                learning_rate=0.05,
+                max_iter=100,
+                early_stopping=True
+            ))
+        ])
+        clf.fit(X[train_idx], y[train_idx])
         
-    best_op = score_predictions(pauses_dev, budget=0.05)
-    print(f"Optimal operating point on Dev set:")
-    print(f"  Threshold: {best_op['threshold']}")
-    print(f"  Delay: {best_op['delay']}")
-    print(f"  Latency: {best_op['latency']}")
-    print(f"  Cutoff: {best_op['cutoff']}")
+        # Predict on dev set
+        dev_probs = clf.predict_proba(X[dev_idx])[:, 1]
+        
+        # Calculate AUC for the fold
+        auc = roc_auc_score(y[dev_idx], dev_probs)
+        
+        # Create pause structures for scoring
+        pauses_dev = []
+        for i, idx in enumerate(dev_idx):
+            tid, p_index, label, dur = keys[idx]
+            pauses_dev.append({
+                "turn_id": tid,
+                "dur": dur,
+                "label": label,
+                "p": dev_probs[i]
+            })
+            
+        best_op = score_predictions(pauses_dev, budget=0.05)
+        fold_thresholds.append(best_op['threshold'])
+        fold_delays.append(best_op['delay'])
+        
+        print(f"Fold {fold}: AUC={auc:.3f}, Response Delay={best_op['latency']*1000:.0f}ms (Threshold={best_op['threshold']}, Cutoff={best_op['cutoff']*100:.1f}%)")
+    
+    avg_threshold = np.mean(fold_thresholds)
+    avg_delay = np.mean(fold_delays)
+    print(f"\nAverage Optimal Threshold: {avg_threshold:.3f}")
+    print(f"Average Optimal Delay: {avg_delay*1000:.0f}ms")
     
     # Refit on all data
-    print("Refitting on all data...")
+    print("Refitting regularized model on all data...")
+    clf = Pipeline([
+        ('scaler', StandardScaler()),
+        ('hgbc', HistGradientBoostingClassifier(
+            random_state=42, 
+            class_weight='balanced',
+            max_depth=6,
+            min_samples_leaf=4,
+            l2_regularization=1.0,
+            learning_rate=0.05,
+            max_iter=100,
+            early_stopping=True
+        ))
+    ])
     clf.fit(X, y)
     
     # Save the model
