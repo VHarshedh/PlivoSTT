@@ -5,9 +5,10 @@ import numpy as np
 import soundfile as sf
 import pickle
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_selection import SelectFromModel
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import GroupKFold
+from sklearn.metrics import roc_auc_score
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from features_ext import extract_all_features
 
 def load_wav(path):
@@ -34,8 +35,8 @@ def evaluate(pauses, threshold, delay, timeout_s=1.6):
 
 def score_predictions(pauses, budget=0.05):
     TIMEOUT_S = 1.6
-    THRESHOLDS = np.round(np.arange(0.05, 1.0, 0.05), 3)
-    DELAYS = np.round(np.arange(0.10, 1.65, 0.05), 3)
+    THRESHOLDS = np.round(np.arange(0.30, 0.70, 0.01), 3)
+    DELAYS = np.round(np.arange(0.10, 0.60, 0.01), 3)
     
     best = None
     for t in THRESHOLDS:
@@ -79,11 +80,6 @@ def main():
     print(f"Total pauses loaded: {len(X)}")
 
     # 5-Fold GroupKFold CV
-    from sklearn.model_selection import GroupKFold
-    from sklearn.metrics import roc_auc_score
-    from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import StandardScaler
-    
     gkf = GroupKFold(n_splits=5)
     
     fold_thresholds = []
@@ -91,24 +87,10 @@ def main():
     
     print("Starting 5-Fold Cross Validation...")
     for fold, (train_idx, dev_idx) in enumerate(gkf.split(X, y, groups), 1):
-        # Train regularized model
+        # Train model
         clf = Pipeline([
             ('scaler', StandardScaler()),
-            ('feature_selection', SelectFromModel(LogisticRegression(
-                penalty='l1',
-                solver='liblinear',
-                C=0.1,
-                class_weight='balanced',
-                max_iter=1000,
-                random_state=42
-            ))),
-            ('rfc', RandomForestClassifier(
-                random_state=42, 
-                class_weight='balanced',
-                max_depth=4,
-                min_samples_leaf=5,
-                n_estimators=100
-            ))
+            ('lr', LogisticRegression(penalty='l1', solver='liblinear', C=0.5, random_state=42))
         ])
         clf.fit(X[train_idx], y[train_idx])
         
@@ -141,29 +123,15 @@ def main():
     print(f"Average Optimal Delay: {avg_delay*1000:.0f}ms")
     
     # Refit on all data
-    print("Refitting regularized model on all data...")
+    print("Refitting model on all data...")
     clf = Pipeline([
         ('scaler', StandardScaler()),
-        ('feature_selection', SelectFromModel(LogisticRegression(
-            penalty='l1',
-            solver='liblinear',
-            C=0.1,
-            class_weight='balanced',
-            max_iter=1000,
-            random_state=42
-        ))),
-        ('rfc', RandomForestClassifier(
-            random_state=42, 
-            class_weight='balanced',
-            max_depth=4,
-            min_samples_leaf=5,
-            n_estimators=100
-        ))
+        ('lr', LogisticRegression(penalty='l1', solver='liblinear', C=0.5, random_state=42))
     ])
     clf.fit(X, y)
     
     # Print non-zero coefficients
-    non_zero = np.sum(clf.named_steps['feature_selection'].estimator_.coef_ != 0)
+    non_zero = np.sum(clf.named_steps['lr'].coef_ != 0)
     print(f"\nFeatures retained (non-zero coefficients): {non_zero} out of {X.shape[1]}")
     
     # Save the model
